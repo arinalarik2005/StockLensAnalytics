@@ -8,14 +8,7 @@ class Top10AntiCrisisService:
     Сервис для поиска топ-10 акций, наиболее устойчивых к рыночным падениям.
     """
 
-    def prepare_data(self, json_data: List[Dict[str, Union[str, float]]]) -> Dict[str, Dict[str,  Union[str, float]]]:
-        """
-        Преобразует плоский список записей в структуру:
-        {
-            'moex': DataFrame с колонками ['date', 'close'],
-            'stocks': dict {ticker: DataFrame с колонками ['date', 'close', 'value', 'AvgDividend']}
-        }
-        """
+    def prepare_data(self, json_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not json_data:
             raise ValueError("Пустой входной список")
 
@@ -30,18 +23,22 @@ class Top10AntiCrisisService:
         if stocks_df.empty:
             raise ValueError("Нет данных по акциям")
 
+        # Переименовываем поля
         stocks_df = stocks_df.rename(columns={
             'symbol': 'Symbol',
             'avg_dividend': 'AvgDividend',
             'value': 'value'
         })
 
+        # Преобразуем value из строки в число (если возможно)
+        # Если преобразование не удаётся или None, ставим 0
+        stocks_df['value'] = pd.to_numeric(stocks_df['value'], errors='coerce').fillna(0).astype(int)
+
         stocks_dict = {}
         for symbol, group in stocks_df.groupby('Symbol'):
             stocks_dict[symbol] = group[['date', 'close', 'value', 'AvgDividend']].copy()
 
         return {'moex': moex_df, 'stocks': stocks_dict}
-
 
     def find_stress_days(self, moex_data: pd.DataFrame, threshold: float = -1.0) -> List[str]:
         """Возвращает список дат, когда дневная доходность MOEX ≤ threshold."""

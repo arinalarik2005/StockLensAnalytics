@@ -103,7 +103,7 @@ class StockDataItem(BaseModel):
     date: str = Field(..., description="Дата в формате YYYY-MM-DD")
     close: float = Field(..., description="Цена закрытия")
     avg_dividend: Optional[float] = Field(None, description="Средняя дивидендная доходность (только для акций)")
-    value: Optional[int] = Field(None, description="Объём торгов в рублях (только для акций)")
+    value: Optional[str] = Field(None, description="Объём торгов в рублях (только для акций)")
 
 class AntiCrisisResultItem(BaseModel):
     ticker: str
