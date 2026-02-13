@@ -46,29 +46,49 @@ class Top10AntiCrisisService:
         stress_mask = returns.iloc[1:] <= threshold
         return moex_data['date'].iloc[1:][stress_mask].tolist()
 
+    @staticmethod
     def calculate_anti_crisis_score(
-        self,
-        stock_data: pd.DataFrame,
-        stress_dates: List[str],
-        moex_data: pd.DataFrame
+            stock_data: pd.DataFrame,
+            stress_dates: List[str],
+            moex_data: pd.DataFrame
     ) -> Optional[Dict[str, float]]:
-        """Рассчитывает метрики устойчивости для одной акции."""
-        stress_data = stock_data[stock_data['date'].isin(stress_dates)].copy()
-        moex_stress = moex_data[moex_data['date'].isin(stress_dates)].copy()
+        """Рассчитывает метрики устойчивости для одной акции с выравниванием по датам."""
+        # Оставляем только стрессовые дни
+        stress_stock = stock_data[stock_data['date'].isin(stress_dates)].copy()
+        stress_moex = moex_data[moex_data['date'].isin(stress_dates)].copy()
 
-        stock_returns = stress_data['close'].pct_change().dropna() * 100
-        moex_returns = moex_stress['close'].pct_change().dropna() * 100
+        # Объединяем по дате, чтобы гарантировать одинаковые дни для обоих рядов
+        merged = pd.merge(
+            stress_stock[['date', 'close']],
+            stress_moex[['date', 'close']],
+            on='date',
+            suffixes=('_stock', '_moex')
+        )
 
-        if len(stock_returns) == 0 or len(moex_returns) == 0:
+        if len(merged) < 2:  # нужно минимум 2 точки для pct_change
             return None
 
+        # Доходности (pct_change даст NaN в первой строке)
+        stock_returns = merged['close_stock'].pct_change().dropna() * 100
+        moex_returns = merged['close_moex'].pct_change().dropna() * 100
+
+        if len(stock_returns) == 0:
+            return None
+
+        # 1. Средняя относительная сила
         relative_strength = (stock_returns.values - moex_returns.values).mean()
+
+        # 2. Доля дней, когда акция показала себя лучше рынка
         better_days = sum(stock_returns.values > moex_returns.values)
         resilient_ratio = better_days / len(stock_returns)
 
+        # 3. Дивидендная доходность (последнее значение)
         dividend_yield = stock_data['AvgDividend'].iloc[-1] if 'AvgDividend' in stock_data.columns else 0.0
+
+        # 4. Средний объём (млн руб.)
         avg_volume = stock_data['value'].mean() / 1_000_000 if 'value' in stock_data.columns else 0.0
 
+        # Итоговый скор (формула из прототипа)
         score = (relative_strength * 2) + (resilient_ratio * 100) + dividend_yield
 
         return {
