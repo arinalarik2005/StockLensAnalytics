@@ -1,86 +1,3 @@
-'''
-from dataclasses import dataclass
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List
-from Services.GeneralAnalyticsService import GeneralAnalyticsService
-
-app = FastAPI()
-
-
-# Простая модель данных
-@dataclass
-class StockItem(BaseModel):
-    symbol: str
-    date: str
-    close: float
-
-
-# Эндпоинт который ожидает список данных
-@app.post("/general_analytics")
-async def general_analytics(data: List[StockItem]):
-    """
-    Простой эндпоинт для нормализации цен
-
-    Просто передайте массив объектов:
-    [
-      {"symbol": "AAPL", "date": "2024-01-01", "close": 150.0},
-      {"symbol": "GOOGL", "date": "2024-01-01", "close": 2800.0}
-    ]
-    """
-    try:
-        # Конвертируем в список словарей
-        data_list = [item.dict() for item in data]
-
-        # Используем сервис
-        service = GeneralAnalyticsService()
-        result = service.create_final_json_response(data_list)
-
-        return {
-            "success": True,
-            "data": result
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List
-from Services.GeneralAnalyticsService import GeneralAnalyticsService
-
-app = FastAPI(title="Stock Analytics API")
-
-
-class StockItem(BaseModel):
-    """Модель входных данных: тикер, дата, цена закрытия."""
-    symbol: str
-    date: str      # формат YYYY-MM-DD (можно заменить на date, если нужна строгая валидация)
-    close: float
-
-
-@app.post("/general_analytics", summary="Нормализация цен")
-def general_analytics(data: List[StockItem]):
-    """
-    Принимает список объектов StockItem, нормализует цены (относительно первой даты каждого символа)
-    и возвращает среднюю нормализованную цену по всем символам для каждой даты.
-    """
-    try:
-        # Преобразуем Pydantic модели в словари (Pydantic v2)
-        data_dicts = [item.model_dump() for item in data]
-
-        service = GeneralAnalyticsService()
-        result = service.create_final_json_response(data_dicts)
-
-        return {"success": True, "data": result}
-
-    except Exception as e:
-        # В реальном проекте лучше использовать конкретные исключения,
-        # но для краткости оставлен общий перехват.
-        raise HTTPException(status_code=500, detail=str(e))
-'''
-
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
@@ -88,7 +5,7 @@ from typing import List, Optional, Dict
 from Services.GeneralAnalyticsService import GeneralAnalyticsService
 from Services.HeatmapForSectors import HeatmapForSectors
 from Services.Top10AntyCrisisService import Top10AntiCrisisService
-
+from Services.PortfolioService import PortfolioService
 app = FastAPI(title="Stock Analytics API")
 
 # ---------- Модели для /general_analytics ----------
@@ -131,6 +48,22 @@ class SectorCorrelationResponse(BaseModel):
     sectors: List[str]
     matrix: List[List[float]]
     stocks_per_sector: Dict[str, int]
+
+
+# ---------- МОДЕЛИ ДЛЯ /portfolio-metrics ----------
+class PortfolioDataItem(BaseModel):
+    Symbol: str
+    Date: str
+    Close: float
+    Percentage: float
+
+class PortfolioMetrics(BaseModel):
+    expected_return: float
+    volatility: float
+    average_correlation: float
+    sharpe_ratio: float
+    diversification_index: float
+
 
 # ---------- Эндпоинт 1: Нормализация цен ----------
 @app.post("/general_analytics", summary="Нормализация цен")
@@ -179,6 +112,27 @@ def sector_correlations(data: List[SectorStockItem]):
         data_dicts = [item.model_dump() for item in data]
         service = HeatmapForSectors()
         result = service.compute_sector_correlations(data_dicts)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ---------- Эндпоинт 4: Метрики по портфелю пользователя ----------
+@app.post("/portfolio-metrics", response_model=PortfolioMetrics)
+def portfolio_metrics(
+    data: List[PortfolioDataItem],
+    risk_free_rate: float = Query(0.05, ge=0, le=1, description="Годовая безрисковая ставка (десятичная дробь)")
+):
+    """
+    Принимает исторические данные портфеля (Symbol, Date, Close, Percentage).
+    Возвращает метрики: ожидаемую доходность, волатильность, среднюю корреляцию,
+    коэффициент Шарпа и индекс диверсификации.
+    """
+    try:
+        data_dicts = [item.model_dump() for item in data]
+        service = PortfolioService()
+        result = service.calculate_metrics(data_dicts, risk_free_rate)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
