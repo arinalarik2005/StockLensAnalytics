@@ -10,25 +10,25 @@ class PortfolioService:
     @staticmethod
     def calculate_metrics(data: List[Dict[str, Any]], risk_free_rate: float = 0.05) -> Dict[str, float]:
         """
-        Принимает список записей с полями Symbol, Date, Close, Percentage.
+        Принимает список записей с полями symbol, date, close, percentage.
         Возвращает словарь с метриками.
         """
         if not data:
             raise ValueError("Пустой входной список")
 
         df = pd.DataFrame(data)
-        required = {'Symbol', 'Date', 'Close', 'Percentage'}
+        required = {'symbol', 'date', 'close', 'percentage'}
         if not required.issubset(df.columns):
             raise ValueError(f"Отсутствуют поля: {required - set(df.columns)}")
 
-        df['Date'] = pd.to_datetime(df['Date'])
+        df['date'] = pd.to_datetime(df['date'])
 
         # Проверяем, что веса постоянны для каждого тикера
         weights_dict = {}
-        for symbol, group in df.groupby('Symbol'):
-            percentages = group['Percentage'].unique()
+        for symbol, group in df.groupby('symbol'):
+            percentages = group['percentage'].unique()
             if len(percentages) > 1:
-                raise ValueError(f"Для тикера {symbol} найдены разные Percentage: {percentages}")
+                raise ValueError(f"Для тикера {symbol} найдены разные percentage: {percentages}")
             weights_dict[symbol] = percentages[0]
 
         total_weight = sum(weights_dict.values())
@@ -36,7 +36,7 @@ class PortfolioService:
             raise ValueError(f"Сумма весов должна быть 1, получено {total_weight}")
 
         # Строим сводную таблицу
-        pivot = df.pivot(index='Date', columns='Symbol', values='Close')
+        pivot = df.pivot(index='date', columns='symbol', values='close')
         missing = set(weights_dict.keys()) - set(pivot.columns)
         if missing:
             raise ValueError(f"Тикеры отсутствуют в данных: {missing}")

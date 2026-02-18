@@ -52,10 +52,10 @@ class SectorCorrelationResponse(BaseModel):
 
 # ---------- МОДЕЛИ ДЛЯ /portfolio-metrics ----------
 class PortfolioDataItem(BaseModel):
-    Symbol: str
-    Date: str
-    Close: float
-    Percentage: float
+    symbol: str
+    date: str
+    close: float
+    percentage: float
 
 class PortfolioMetrics(BaseModel):
     expected_return: float
