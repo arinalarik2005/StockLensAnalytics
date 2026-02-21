@@ -49,21 +49,48 @@ class SectorCorrelationResponse(BaseModel):
     matrix: List[List[float]]
     stocks_per_sector: Dict[str, int]
 
-
-# ---------- МОДЕЛИ ДЛЯ /portfolio-metrics ----------
-class PortfolioDataItem(BaseModel):
+# ---------- Модели для /portfolio/own-weights ----------
+class OwnWeightsItem(BaseModel):
     symbol: str
     date: str
     close: float
     percentage: float
 
-class PortfolioMetrics(BaseModel):
+class OwnWeightsRequest(BaseModel):
+
+    def validate_weights(cls, v):
+        # Проверяем постоянство веса для каждого тикера
+        weight_by_symbol = {}
+        for item in v:
+            sym = item.symbol
+            w = item.percentage
+            if sym in weight_by_symbol:
+                if abs(weight_by_symbol[sym] - w) > 1e-6:
+                    raise ValueError(f"Для тикера {sym} найдены разные значения Percentage")
+            else:
+                weight_by_symbol[sym] = w
+        # Проверяем сумму весов
+        total = sum(weight_by_symbol.values())
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"Сумма весов должна быть 1, получено {total}")
+        return v
+
+class OwnWeightsResponse(BaseModel):
     expected_return: float
     volatility: float
-    average_correlation: float
     sharpe_ratio: float
-    diversification_index: float
 
+# ---------- Модели для /portfolio/optimize ----------
+class OptimizeItem(BaseModel):
+    symbol: str
+    date: str
+    close: float
+
+class OptimizeResponse(BaseModel):
+    weights: Dict[str, float]
+    expected_return: float
+    volatility: float
+    sharpe_ratio: float
 
 # ---------- Эндпоинт 1: Нормализация цен ----------
 @app.post("/general_analytics", summary="Нормализация цен")
@@ -118,21 +145,57 @@ def sector_correlations(data: List[SectorStockItem]):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# ---------- Эндпоинт 4: Метрики по портфелю пользователя ----------
-@app.post("/portfolio-metrics", response_model=PortfolioMetrics)
-def portfolio_metrics(
-    data: List[PortfolioDataItem],
-    risk_free_rate: float = Query(0.05, ge=0, le=1, description="Годовая безрисковая ставка (десятичная дробь)")
+
+# ---------- Эндпоинт 4 : Рассчет метрик для портфеля с заданными весами /portfolio/own-weights ----------
+@app.post("/portfolio/own-weights", response_model=OwnWeightsResponse)
+def own_weights(
+    data: List[OwnWeightsItem],  # FastAPI автоматически распарсит список
+    risk_free_rate: float = Query(0.05, ge=0, le=1, description="Годовая безрисковая ставка")
 ):
     """
-    Принимает исторические данные портфеля (Symbol, Date, Close, Percentage).
-    Возвращает метрики: ожидаемую доходность, волатильность, среднюю корреляцию,
-    коэффициент Шарпа и индекс диверсификации.
+    Рассчитать метрики для портфеля с заданными весами.
+    Каждая запись должна содержать symbol, date, close, percentage.
+    """
+    # Валидация уже выполнена через модель, но нам нужно извлечь уникальные веса
+    weight_by_symbol = {}
+    for item in data:
+        sym = item.symbol
+        w = item.percentage
+        if sym not in weight_by_symbol:
+            weight_by_symbol[sym] = w
+
+
+    try:
+        data_dicts = [item.dict() for item in data]
+        metrics = PortfolioService().calculate_metrics(
+            data=data_dicts,
+            weights=weight_by_symbol,
+            risk_free_rate=risk_free_rate
+        )
+        return metrics
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ---------- Эндпоинт 5: Рассчет метрик для портфеля без заданных весов /portfolio/optimize ----------
+@app.post("/portfolio/optimize", response_model=OptimizeResponse)
+def optimize(
+    data: List[OptimizeItem],
+    risk_free_rate: float = Query(0.05, ge=0, le=1, description="Годовая безрисковая ставка"),
+    linkage_method: str = Query("ward", description="Метод кластеризации: single, complete, average, ward")
+):
+    """
+    Оптимизировать портфель методом HRP.
+    Принимает только symbol, date, close. Возвращает оптимальные веса и метрики.
     """
     try:
-        data_dicts = [item.model_dump() for item in data]
-        service = PortfolioService()
-        result = service.calculate_metrics(data_dicts, risk_free_rate)
+        data_dicts = [item.dict() for item in data]
+        result = PortfolioService.optimize(
+            data=data_dicts,
+            linkage_method=linkage_method,
+            risk_free_rate=risk_free_rate
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
