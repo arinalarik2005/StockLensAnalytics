@@ -1,74 +1,83 @@
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Union, Any
 
 
 class HeatmapForSectors:
     """
     Сервис для расчёта корреляционной матрицы между секторами.
+    Диагональ матрицы всегда равна 1.0.
     """
 
-    def compute_sector_correlations(self, data: List[Dict[str, Union[str, float]]]) -> Dict[str, Dict[str, Union[str, float]]]:
-        """
-        Принимает список записей с полями Symbol, Date, Close, Sector.
-        Возвращает структуру:
-        {
-            "sectors": list[str],
-            "matrix": list[list[float]],
-            "stocks_per_sector": dict[str, int]
-        }
-        """
+    def compute_sector_correlations(
+        self,
+        data: List[Dict[str, Union[str, float]]]
+    ) -> Dict[str, Any]:
+
         if not data:
             raise ValueError("Входной список пуст")
 
         df = pd.DataFrame(data)
+
         required_cols = {'symbol', 'date', 'close', 'sector'}
         if not required_cols.issubset(df.columns):
-            raise ValueError(f"Отсутствуют обязательные колонки: {required_cols - set(df.columns)}")
+            raise ValueError(
+                f"Отсутствуют обязательные колонки: "
+                f"{required_cols - set(df.columns)}"
+            )
 
-        # Дата -> datetime
+        # Приведение и сортировка дат
         df['date'] = pd.to_datetime(df['date'])
+        df = df.sort_values('date')
 
-        # Сортируем сектора для стабильного порядка
-        sectors = sorted(df['sector'].unique())
-        n_sectors = len(sectors)
-
-        # Широкий формат: даты × тикеры, значения = цена
+        # Pivot: даты × тикеры
         pivot = df.pivot(index='date', columns='symbol', values='close')
-        returns = pivot.pct_change().dropna()
 
-        # Словарь тикер -> секторs
-        ticker_sector = df[['symbol', 'sector']].drop_duplicates().set_index('symbol')['sector'].to_dict()
+        # Доходности
+        returns = pivot.pct_change()
 
-        # Матрица корреляций между секторами
-        corr_matrix = np.zeros((n_sectors, n_sectors))
-        stocks_per_sector = {}
+        # Полная матрица корреляций акций
+        stock_corr = returns.corr()
+
+        # Сектора и маппинг
+        sectors = sorted(df['sector'].unique())
+        sector_to_tickers = (
+            df[['symbol', 'sector']]
+            .drop_duplicates()
+            .groupby('sector')['symbol']
+            .apply(list)
+            .to_dict()
+        )
+
+        n_sectors = len(sectors)
+        corr_matrix = np.full((n_sectors, n_sectors), np.nan)
+        stocks_per_sector = {
+            sector: len(sector_to_tickers.get(sector, []))
+            for sector in sectors
+        }
 
         for i, s1 in enumerate(sectors):
-            tickers1 = [t for t, sec in ticker_sector.items() if sec == s1]
-            stocks_per_sector[s1] = len(tickers1)
-            corr_matrix[i, i] = 1.0
+            tickers1 = sector_to_tickers.get(s1, [])
+            corr_matrix[i, i] = 1.0  # по ТЗ
 
-            for j, s2 in enumerate(sectors):
-                if i >= j:
-                    continue  # заполняем только верхний треугольник, потом симметрично
+            for j in range(i + 1, n_sectors):
+                s2 = sectors[j]
+                tickers2 = sector_to_tickers.get(s2, [])
 
-                tickers2 = [t for t, sec in ticker_sector.items() if sec == s2]
+                if not tickers1 or not tickers2:
+                    continue
 
-                corr_values = []
-                for t1 in tickers1:
-                    if t1 not in returns.columns:
-                        continue
-                    for t2 in tickers2:
-                        if t2 not in returns.columns:
-                            continue
-                        corr = returns[t1].corr(returns[t2])
-                        if not np.isnan(corr):
-                            corr_values.append(corr)
+                # Подматрица корреляций между двумя секторами
+                sub_corr = stock_corr.loc[tickers1, tickers2]
 
-                avg_corr = round(np.mean(corr_values), 4) if corr_values else 0.0
-                corr_matrix[i, j] = avg_corr
-                corr_matrix[j, i] = avg_corr
+                # Среднее без NaN
+                values = sub_corr.values.flatten()
+                values = values[~np.isnan(values)]
+
+                if len(values) > 0:
+                    avg_corr = round(float(values.mean()), 4)
+                    corr_matrix[i, j] = avg_corr
+                    corr_matrix[j, i] = avg_corr
 
         return {
             "sectors": sectors,
