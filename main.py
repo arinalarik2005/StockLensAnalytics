@@ -6,91 +6,10 @@ from Services.GeneralAnalyticsService import GeneralAnalyticsService
 from Services.HeatmapForSectors import HeatmapForSectors
 from Services.Top10AntyCrisisService import Top10AntiCrisisService
 from Services.PortfolioService import PortfolioService
+from Services.Orchestrator import PortfolioOrchestrator
+from schemas import  OptimizeRequest, OptimizeResponse, OwnWeightsResponse, AntiCrisisResponse, StockDataItem, StockItem, SectorStockItem, SectorCorrelationResponse, OwnWeightsItem
 app = FastAPI(title="Stock Analytics API")
 
-# ---------- Модели для /general_analytics ----------
-class StockItem(BaseModel):
-    symbol: str
-    date: str
-    close: float
-
-# ---------- Модели для /anti-crisis-top10 ----------
-class StockDataItem(BaseModel):
-    symbol: str = Field(..., description="Тикер (MOEX или акция)")
-    date: str = Field(..., description="Дата в формате YYYY-MM-DD")
-    close: float = Field(..., description="Цена закрытия")
-    avg_dividend: Optional[float] = Field(None, description="Средняя дивидендная доходность (только для акций)")
-    value: Optional[str] = Field(None, description="Объём торгов в рублях (только для акций)")
-
-class AntiCrisisResultItem(BaseModel):
-    ticker: str
-    relative_strength: float
-    resilient_ratio: float
-    dividend_yield: float
-    avg_volume: float
-    score: float
-    rank: int
-
-
-# ---------- Модели для /heatmap-sectors ----------
-class AntiCrisisResponse(BaseModel):
-    success: bool
-    data: List[AntiCrisisResultItem]
-
-class SectorStockItem(BaseModel):
-    """Одна запись для расчёта корреляций между секторами."""
-    symbol: str = Field(..., description="Тикер")
-    date: str = Field(..., description="Дата в формате YYYY-MM-DD")
-    close: float = Field(..., gt=0, description="Цена закрытия")
-    sector: str = Field(..., description="Название сектора")
-
-class SectorCorrelationResponse(BaseModel):
-    sectors: List[str]
-    matrix: List[List[float]]
-    stocks_per_sector: Dict[str, int]
-
-# ---------- Модели для /portfolio/own-weights ----------
-class OwnWeightsItem(BaseModel):
-    symbol: str
-    date: str
-    close: float
-    percentage: float
-
-class OwnWeightsRequest(BaseModel):
-
-    def validate_weights(cls, v):
-        # Проверяем постоянство веса для каждого тикера
-        weight_by_symbol = {}
-        for item in v:
-            sym = item.symbol
-            w = item.percentage
-            if sym in weight_by_symbol:
-                if abs(weight_by_symbol[sym] - w) > 1e-6:
-                    raise ValueError(f"Для тикера {sym} найдены разные значения Percentage")
-            else:
-                weight_by_symbol[sym] = w
-        # Проверяем сумму весов
-        total = sum(weight_by_symbol.values())
-        if abs(total - 1.0) > 1e-6:
-            raise ValueError(f"Сумма весов должна быть 1, получено {total}")
-        return v
-
-class OwnWeightsResponse(BaseModel):
-    expected_return: float
-    volatility: float
-    sharpe_ratio: float
-
-# ---------- Модели для /portfolio/optimize ----------
-class OptimizeItem(BaseModel):
-    symbol: str
-    date: str
-    close: float
-
-class OptimizeResponse(BaseModel):
-    weights: Dict[str, float]
-    expected_return: float
-    volatility: float
-    sharpe_ratio: float
 
 # ---------- Эндпоинт 1: Нормализация цен ----------
 @app.post("/general_analytics", summary="Нормализация цен")
@@ -179,25 +98,15 @@ def own_weights(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # ---------- Эндпоинт 5: Рассчет метрик для портфеля без заданных весов /portfolio/optimize ----------
+orchestrator = PortfolioOrchestrator()
+
 @app.post("/portfolio/optimize", response_model=OptimizeResponse)
-def optimize(
-    data: List[OptimizeItem],
-    risk_free_rate: float = Query(0.05, ge=0, le=1, description="Годовая безрисковая ставка"),
-    linkage_method: str = Query("ward", description="Метод кластеризации: single, complete, average, ward")
-):
-    """
-    Оптимизировать портфель методом HRP.
-    Принимает только symbol, date, close. Возвращает оптимальные веса и метрики.
-    """
+async def optimize_endpoint(request: OptimizeRequest):
     try:
-        data_dicts = [item.dict() for item in data]
-        result = PortfolioService.optimize(
-            data=data_dicts,
-            linkage_method=linkage_method,
-            risk_free_rate=risk_free_rate
-        )
+        result = orchestrator.process(request)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Здесь можно добавить логирование
         raise HTTPException(status_code=500, detail="Internal server error")
