@@ -7,7 +7,7 @@ from Services.HeatmapForSectors import HeatmapForSectors
 from Services.Top10AntyCrisisService import Top10AntiCrisisService
 from Services.PortfolioService import PortfolioService
 from Services.Orchestrator import PortfolioOrchestrator
-from schemas import  OptimizeRequest, OptimizeResponse, OwnWeightsResponse, AntiCrisisResponse, StockDataItem, StockItem, SectorStockItem, SectorCorrelationResponse, OwnWeightsItem
+from schemas import Wrapper, OptimizeRequest, OptimizeResponse, OwnWeightsResponse, AntiCrisisResponse, StockDataItem, StockItem, SectorStockItem, SectorCorrelationResponse, OwnWeightsItem
 app = FastAPI(title="Stock Analytics API")
 
 
@@ -29,7 +29,7 @@ def general_analytics(data: List[StockItem]):
 # ---------- Эндпоинт 2: Антикризисный топ-10 ----------
 @app.post("/anti-crisis-top10", response_model=AntiCrisisResponse)
 def anti_crisis_top10(
-    data: List[StockDataItem],
+    data: Wrapper[StockDataItem],
     liquidity_min: float = Query(50, description="Минимальный средний дневной объём (млн руб.)")
 ):
     """
