@@ -106,14 +106,6 @@ class QuoteItem(BaseModel):
     close: float
 
 
-class OptimizeRequest(BaseModel):
-    m1: int = Field(..., ge=1, le=4, description="Ответ на вопрос 1 (1-4)")
-    m2: int = Field(..., ge=1, le=4, description="Ответ на вопрос 2 (1-4)")
-    m3: int = Field(..., ge=1, le=4, description="Ответ на вопрос 3 (1-4)")
-    m4: int = Field(..., ge=1, le=4, description="Ответ на вопрос 4 (1-4)")
-    quotes: List[QuoteItem]
-
-
 class OptimizeResponse(BaseModel):
     weights: dict[str, float]
     expected_return: float

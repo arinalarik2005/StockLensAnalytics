@@ -7,19 +7,21 @@ from Services.HeatmapForSectors import HeatmapForSectors
 from Services.Top10AntyCrisisService import Top10AntiCrisisService
 from Services.PortfolioService import PortfolioService
 from Services.Orchestrator import PortfolioOrchestrator
-from schemas import Wrapper, OptimizeRequest, OptimizeResponse, OwnWeightsResponse, AntiCrisisResponse, StockDataItem, StockItem, SectorStockItem, SectorCorrelationResponse, OwnWeightsItem
+from schemas import Wrapper, OptimizeResponse, OwnWeightsResponse, AntiCrisisResponse, StockDataItem, \
+    StockItem, SectorStockItem, SectorCorrelationResponse, OwnWeightsItem, QuoteItem
+
 app = FastAPI(title="Stock Analytics API")
 
 
 # ---------- Эндпоинт 1: Нормализация цен ----------
 @app.post("/general_analytics", summary="Нормализация цен")
-def general_analytics(data: List[StockItem]):
+def general_analytics(data:  Wrapper[StockItem]):
     """
     Принимает список объектов StockItem, нормализует цены (относительно первой даты каждого символа)
     и возвращает среднюю нормализованную цену по всем символам для каждой даты.
     """
     try:
-        data_dicts = [item.model_dump() for item in data]
+        data_dicts = [item.model_dump() for item in data.analyticsDtos]
         service = GeneralAnalyticsService()
         result = service.create_final_json_response(data_dicts)
         return {"success": True, "data": result}
@@ -37,7 +39,7 @@ def anti_crisis_top10(
     вычисляет антикризисный рейтинг и возвращает топ-10 акций.
     """
     try:
-        data_dicts = [item.model_dump() for item in data]
+        data_dicts = [item.model_dump() for item in data.analyticsDtos]
         service = Top10AntiCrisisService()
         result = service.run_analysis(data_dicts, liquidity_min)
         return AntiCrisisResponse(success=True, data=result)
@@ -48,14 +50,14 @@ def anti_crisis_top10(
 
 # ---------- Эндпоинт 3: Тепловая карта по секторам ----------
 @app.post("/sector-correlations", response_model=SectorCorrelationResponse)
-def sector_correlations(data: List[SectorStockItem]):
+def sector_correlations(data: Wrapper[SectorStockItem]):
     """
     Принимает исторические данные по акциям с указанием сектора.
     Возвращает матрицу средних попарных корреляций между секторами.
     """
     try:
         # Преобразуем Pydantic модели в словари (Pydantic v2)
-        data_dicts = [item.model_dump() for item in data]
+        data_dicts = [item.model_dump() for item in data.analyticsDtos]
         service = HeatmapForSectors()
         result = service.compute_sector_correlations(data_dicts)
         return result
@@ -68,7 +70,7 @@ def sector_correlations(data: List[SectorStockItem]):
 # ---------- Эндпоинт 4 : Рассчет метрик для портфеля с заданными весами /portfolio/own-weights ----------
 @app.post("/portfolio/own-weights", response_model=OwnWeightsResponse)
 def own_weights(
-    data: List[OwnWeightsItem],  # FastAPI автоматически распарсит список
+    data: Wrapper[OwnWeightsItem],  # FastAPI автоматически распарсит список
     risk_free_rate: float = Query(0.05, ge=0, le=1, description="Годовая безрисковая ставка")
 ):
     """
@@ -77,7 +79,7 @@ def own_weights(
     """
     # Валидация уже выполнена через модель, но нам нужно извлечь уникальные веса
     weight_by_symbol = {}
-    for item in data:
+    for item in data.analyticsDtos:
         sym = item.symbol
         w = item.percentage
         if sym not in weight_by_symbol:
@@ -85,7 +87,7 @@ def own_weights(
 
 
     try:
-        data_dicts = [item.dict() for item in data]
+        data_dicts = [item.dict() for item in data.analyticsDtos]
         metrics = PortfolioService().calculate_metrics(
             data=data_dicts,
             weights=weight_by_symbol,
@@ -101,7 +103,7 @@ def own_weights(
 orchestrator = PortfolioOrchestrator()
 
 @app.post("/portfolio/optimize", response_model=OptimizeResponse)
-async def optimize_endpoint(request: OptimizeRequest):
+async def optimize_endpoint(request: Wrapper[QuoteItem]):
     try:
         result = orchestrator.process(request)
         return result

@@ -1,20 +1,21 @@
 # orchestrator.py
-from schemas import OptimizeRequest, OptimizeResponse
-
+from schemas import OptimizeResponse, Wrapper, QuoteItem
 from Services.PortfolioService import PortfolioService
 from Services.UserProfileService import UserProfileService
+
+
 class PortfolioOrchestrator:
     def __init__(self):
         self.user_profile_service = UserProfileService()
         self.portfolio_service = PortfolioService()
 
-    def process(self, request: OptimizeRequest) -> OptimizeResponse:
+    def process(self, request: Wrapper[QuoteItem]) -> OptimizeResponse:
         # 1. Подготовка ответов на опросник
         answers = {
-            'q1': request.m1,
-            'q2': request.m2,
-            'q3': request.m3,
-            'q4': request.m4
+            'q1': request.reactionToDrop,
+            'q2': request.maxDrawdownPercent,
+            'q3': request.investmentHorizon,
+            'q4': request.experience
         }
 
         # 2. Получение профиля и параметров
@@ -22,7 +23,7 @@ class PortfolioOrchestrator:
         params = profile_data['parameters']
 
         # 3. Преобразование котировок
-        quotes_dicts = [item.dict() for item in request.quotes]
+        quotes_dicts = [item.dict() for item in request.analyticsDtos]
 
         # 4. Оптимизация портфеля
         portfolio_result = self.portfolio_service.optimize(
